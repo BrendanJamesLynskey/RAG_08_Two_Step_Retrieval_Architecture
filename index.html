@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG 08 &mdash; Two-Step Retrieval: Architecture &amp; Cost-Quality Mathematics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-card: #0d1117;
+            --bg-code: #161b22;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #76B900;
+            --accent-dim: #76B90044;
+            --accent-glow: #76B90033;
+            --border: #21262d;
+            --font-display: 'Space Grotesk', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --font-body: 'Inter', sans-serif;
+            --max-width: 900px;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body { background: var(--bg-primary); color: var(--text-primary);
+               font-family: var(--font-body); font-size: 17px; line-height: 1.7;
+               overflow-x: hidden; }
+        .hero { min-height: 100vh; display: flex; flex-direction: column;
+                justify-content: center; align-items: center;
+                padding: 2rem 1.5rem; text-align: center; position: relative; }
+        .hero::before { content: ''; position: absolute; top: 0; left: 50%;
+                        transform: translateX(-50%); width: 600px; height: 600px;
+                        background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+                        pointer-events: none; z-index: 0; }
+        .hero > * { position: relative; z-index: 1; }
+        .series-label { font-family: var(--font-mono); font-size: 0.85rem;
+                        color: var(--accent); letter-spacing: 0.15em;
+                        text-transform: uppercase; margin-bottom: 1rem; }
+        .hero h1 { font-family: var(--font-display);
+                   font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 700;
+                   color: var(--text-primary); line-height: 1.2; margin-bottom: 1rem; }
+        .hero h1 .accent { color: var(--accent); }
+        .hero .subtitle { font-size: 1.1rem; color: var(--text-secondary);
+                          max-width: 720px; margin-bottom: 2rem; }
+        .tags { display: flex; flex-wrap: wrap; gap: 0.5rem;
+                justify-content: center; margin-bottom: 2.5rem; }
+        .tag { font-family: var(--font-mono); font-size: 0.75rem;
+               padding: 0.25rem 0.75rem; border-radius: 999px;
+               border: 1px solid var(--accent); color: var(--accent);
+               background: var(--accent-dim); white-space: nowrap; }
+        .pipeline { display: flex; flex-wrap: wrap; align-items: center;
+                    justify-content: center; gap: 0.25rem;
+                    margin-bottom: 1rem; max-width: var(--max-width); }
+        .pipeline-step { font-family: var(--font-mono); font-size: 0.7rem;
+                         padding: 0.3rem 0.7rem; background: var(--bg-card);
+                         border: 1px solid var(--border); border-radius: 4px;
+                         color: var(--text-secondary); white-space: nowrap; }
+        .pipeline-arrow { color: var(--accent); font-size: 0.9rem; font-weight: 700; }
+        .slide { min-height: 100vh; max-width: var(--max-width); margin: 0 auto;
+                 padding: 4rem 1.5rem; position: relative;
+                 display: flex; flex-direction: column; justify-content: center; }
+        .slide-number { font-family: var(--font-display); font-size: 5rem;
+                        font-weight: 700; color: var(--accent-dim);
+                        position: absolute; top: 2rem; right: 1.5rem;
+                        line-height: 1; user-select: none; }
+        .slide h2 { font-family: var(--font-display); font-size: 1.9rem;
+                    font-weight: 700; color: var(--accent);
+                    margin-bottom: 1.5rem; line-height: 1.25; }
+        .slide h3 { font-family: var(--font-display); font-size: 1.3rem;
+                    font-weight: 600; color: var(--text-primary);
+                    margin-top: 1.5rem; margin-bottom: 0.75rem; }
+        .slide p { margin-bottom: 1rem; color: var(--text-secondary); }
+        .slide p strong { color: var(--text-primary); }
+        .slide ul, .slide ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+        .slide li { margin-bottom: 0.4rem; }
+        .slide li strong { color: var(--text-primary); }
+        .slide code { font-family: var(--font-mono); font-size: 0.88em;
+                      background: var(--bg-code); border: 1px solid var(--border);
+                      padding: 0.05rem 0.35rem; border-radius: 3px; color: #c9d1d9; }
+        .math { font-family: var(--font-mono); font-size: 0.95em;
+                background: var(--bg-code); border: 1px solid var(--border);
+                padding: 0.6rem 0.9rem; border-radius: 6px; color: #c9d1d9;
+                display: block; margin: 0.6rem 0; line-height: 1.6;
+                overflow-x: auto; white-space: nowrap; }
+        .math .acc { color: var(--accent); }
+        .math .dim { color: var(--text-secondary); }
+        .code-block { background: var(--bg-code); border: 1px solid var(--border);
+                      border-radius: 8px; margin: 1.25rem 0; overflow: hidden; }
+        .code-header { font-family: var(--font-mono); font-size: 0.75rem;
+                       color: var(--accent); background: rgba(118, 185, 0, 0.08);
+                       padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); }
+        .code-block pre { margin: 0; padding: 1rem; overflow-x: auto; }
+        .code-block code { font-family: var(--font-mono); font-size: 0.85rem;
+                           line-height: 1.6; color: #c9d1d9;
+                           background: transparent; border: none; padding: 0; }
+        .kw { color: #ff7b72; }
+        .fn { color: #d2a8ff; }
+        .str { color: #a5d6ff; }
+        .cm { color: #8b949e; font-style: italic; }
+        .num { color: #79c0ff; }
+        .type { color: #ffa657; }
+        .table-wrap { overflow-x: auto; margin: 1.25rem 0;
+                      border-radius: 8px; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { background: var(--bg-code); color: var(--accent);
+             font-weight: 600; text-align: left;
+             padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+             font-family: var(--font-display); white-space: nowrap; }
+        td { padding: 0.6rem 1rem; border-bottom: 1px solid var(--border);
+             color: var(--text-secondary); vertical-align: top; }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: rgba(13, 17, 23, 0.5); }
+        .diagram-flow { display: flex; flex-wrap: wrap; align-items: center;
+                        justify-content: center; gap: 0.5rem; margin: 1.5rem 0;
+                        padding: 1.5rem; background: var(--bg-card);
+                        border: 1px solid var(--border); border-radius: 8px; }
+        .diagram-box { font-family: var(--font-mono); font-size: 0.85rem;
+                       padding: 0.5rem 1rem; background: var(--bg-code);
+                       border: 1px solid var(--border); border-radius: 6px;
+                       color: var(--text-primary); text-align: center;
+                       white-space: nowrap; }
+        .diagram-box.accent { border-color: var(--accent); color: var(--accent);
+                              background: rgba(118, 185, 0, 0.08); }
+        .diagram-box.dim { color: var(--text-secondary); border-color: var(--border); }
+        .diagram-arrow { color: var(--accent); font-size: 1.3rem; font-weight: 700; }
+        .diagram-grid { display: grid; gap: 0.75rem; margin: 1.5rem 0;
+                        padding: 1.5rem; background: var(--bg-card);
+                        border: 1px solid var(--border); border-radius: 8px; }
+        .diagram-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+        .diagram-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .diagram-panel { padding: 1rem; background: var(--bg-code);
+                         border: 1px solid var(--border); border-radius: 6px; }
+        .diagram-panel.accent-border { border-left: 3px solid var(--accent); }
+        .diagram-panel h4 { font-family: var(--font-display); font-size: 1rem;
+                            color: var(--accent); margin-bottom: 0.5rem; }
+        .diagram-panel p, .diagram-panel ul { font-size: 0.85rem; }
+        .callout { background: var(--bg-card); border-left: 3px solid var(--accent);
+                   border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1.25rem 0; }
+        .callout p { margin-bottom: 0; }
+        .callout p + p { margin-top: 0.5rem; }
+        .callout .callout-label { font-family: var(--font-mono); font-size: 0.75rem;
+                                  color: var(--accent); text-transform: uppercase;
+                                  letter-spacing: 0.1em; margin-bottom: 0.3rem; }
+        .contents-list { list-style: none; padding-left: 0; counter-reset: contents; }
+        .contents-list li { counter-increment: contents; padding: 0.6rem 0;
+                            border-bottom: 1px solid var(--border);
+                            display: flex; align-items: center; gap: 1rem; }
+        .contents-list li:last-child { border-bottom: none; }
+        .contents-list li::before { content: counter(contents, decimal-leading-zero);
+                                    font-family: var(--font-mono); font-size: 0.85rem;
+                                    color: var(--accent); min-width: 2rem; }
+        .contents-list a { color: var(--text-primary); text-decoration: none; transition: color 0.2s; }
+        .contents-list a:hover { color: var(--accent); }
+        .footer { text-align: center; padding: 3rem 1.5rem;
+                  color: var(--text-secondary); font-size: 0.85rem;
+                  border-top: 1px solid var(--border);
+                  max-width: var(--max-width); margin: 0 auto; }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        @media (max-width: 640px) {
+            .slide { padding: 3rem 1rem; min-height: auto; }
+            .slide-number { font-size: 3rem; top: 1.5rem; right: 1rem; }
+            .slide h2 { font-size: 1.5rem; }
+            .diagram-grid.cols-2, .diagram-grid.cols-3 { grid-template-columns: 1fr; }
+            .pipeline { gap: 0.15rem; }
+            .pipeline-step { font-size: 0.6rem; padding: 0.2rem 0.4rem; }
+            .hero h1 { font-size: 1.8rem; }
+            table { font-size: 0.78rem; }
+            .math { font-size: 0.78em; white-space: pre-wrap; }
+        }
+    </style>
+</head>
+<body>
+<header class="hero">
+    <div class="series-label">RAG &amp; Retrieval Systems Series &mdash; Presentation 08</div>
+    <h1>Two-Step Retrieval &mdash; <span class="accent">Architecture &amp; Cost-Quality Mathematics</span></h1>
+    <p class="subtitle">Why every production RAG system is a cascade. The bi-encoder / cross-encoder asymmetry, the indexability theorem, ANN mathematics, fusion derivations, latency composition, and the (k, quality, latency) Pareto frontier.</p>
+    <div class="tags">
+        <span class="tag">Bi-Encoder</span>
+        <span class="tag">Cross-Encoder</span>
+        <span class="tag">MIPS</span>
+        <span class="tag">HNSW</span>
+        <span class="tag">IVF&middot;PQ</span>
+        <span class="tag">RRF Derivation</span>
+        <span class="tag">Calibration</span>
+        <span class="tag">Pareto Frontier</span>
+    </div>
+    <div class="pipeline">
+        <span class="pipeline-step">User query</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Stage 1: cheap recall</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">k=100&hellip;1000</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Stage 2: expensive precision</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">k=5&hellip;20</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">LLM context</span>
+    </div>
+</header>
+
+<section class="slide" id="slide-00">
+    <div class="slide-number">00</div>
+    <h2>Topics We'll Cover</h2>
+    <ul class="contents-list">
+        <li><a href="#slide-01">Why Two Steps? &mdash; The Operational Picture</a></li>
+        <li><a href="#slide-02">Bi-Encoder vs Cross-Encoder &mdash; The Fundamental Asymmetry</a></li>
+        <li><a href="#slide-03">Indexability &mdash; Why MIPS Scales and Cross-Attention Doesn't</a></li>
+        <li><a href="#slide-04">ANN Mathematics &mdash; HNSW, IVF, PQ, Recall&ndash;Latency Trade-offs</a></li>
+        <li><a href="#slide-05">Recall, Precision, and the Recall-Ceiling Theorem</a></li>
+        <li><a href="#slide-06">Fusion Mathematics &mdash; RRF Derivation, CombSUM, Z-Score</a></li>
+        <li><a href="#slide-07">Latency Composition &mdash; Means, Percentiles, Parallelism</a></li>
+        <li><a href="#slide-08">Cascade Depth &mdash; The (k, Quality, Latency) Pareto Frontier</a></li>
+        <li><a href="#slide-09">Score Calibration &mdash; Platt, Isotonic, Temperature</a></li>
+        <li><a href="#slide-10">Worked Example &mdash; 10 M Documents, 200 ms Budget</a></li>
+        <li><a href="#slide-11">What to Take Away</a></li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Companion deck</div>
+        <p>This deck covers the <strong>architecture and cost-quality mathematics</strong> of the two-stage cascade. Its sibling, <a href="https://brendanjameslynskey.github.io/RAG_09_Reranker_Mathematics/">RAG 09 &mdash; Reranker Mathematics</a>, takes the second stage and derives the actual scoring functions and training losses: cross-encoder attention, ColBERT MaxSim, RankNet / LambdaRank / LambdaMART, InfoNCE, MarginMSE distillation, and the metric mathematics (DCG / NDCG / MRR / MAP).</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-01">
+    <div class="slide-number">01</div>
+    <h2>Why Two Steps? &mdash; The Operational Picture</h2>
+    <p>Every serious RAG system in production is a <strong>cascade</strong>: a cheap, high-recall stage that scans the entire corpus, followed by an expensive, high-precision stage that re-scores a short-list of survivors. The structure is not an implementation detail &mdash; it is the only architecture that makes the cost arithmetic work.</p>
+    <div class="callout">
+        <div class="callout-label">The arithmetic that forces a cascade</div>
+        <p>A modern cross-encoder reranker scores one (query, document) pair in 1&ndash;5 ms on a single GPU. A modest production corpus has 10<sup>7</sup> documents. Scoring every pair: <strong>10<sup>7</sup> &times; 2 ms = 5.5 hours</strong> per query. Per query. With one user. The cascade exists because we cannot run the precise model on the whole corpus.</p>
+    </div>
+    <div class="diagram-flow">
+        <div class="diagram-box accent">Stage 1<br><small>cheap, indexed, recall&minus;oriented</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">Optional fusion<br><small>BM25 &cup; dense</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box accent">Stage 2<br><small>expensive, exact, precision&minus;oriented</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">Top-k to LLM</div>
+    </div>
+    <p>The cascade is justified by two empirical observations that hold across almost every retrieval benchmark:</p>
+    <ol>
+        <li><strong>Cheap models have high recall at large k.</strong> A bi-encoder or BM25 with k=100 typically captures &gt;95% of relevant documents on BEIR-style corpora &mdash; even if their ranking inside the top-100 is mediocre.</li>
+        <li><strong>Expensive models have high precision at small k.</strong> A cross-encoder reranker applied to a 100-item short-list typically lifts NDCG@10 by 5&ndash;15 points over the bi-encoder's own top-10 &mdash; because cross-attention lets every query token see every document token.</li>
+    </ol>
+    <p>The cascade composes the strengths: <strong>cheap recall &times; expensive precision = both</strong>. Everything in this deck is a quantitative consequence of that composition.</p>
+</section>
+
+<section class="slide" id="slide-02">
+    <div class="slide-number">02</div>
+    <h2>Bi-Encoder vs Cross-Encoder &mdash; The Fundamental Asymmetry</h2>
+    <p>The two stages exist because there are two structurally different ways to score a (query, document) pair. They differ in <em>where the query and document interact</em>.</p>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Bi-encoder &mdash; late, scalar interaction</h4>
+            <span class="math">s(q,d) = &lang; <span class="acc">f<sub>&theta;</sub>(q)</span>, <span class="acc">g<sub>&phi;</sub>(d)</span> &rang;</span>
+            <p>Query and document are encoded <em>independently</em> into a single vector each: <code>f(q), g(d) &isin; &reals;<sup>D</sup></code>. Score is a single inner product. Time per pair: <strong>O(D)</strong>. Document vectors can be <strong>precomputed once</strong> and stored in an index.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Cross-encoder &mdash; early, full-token interaction</h4>
+            <span class="math">s(q,d) = h<sub>&psi;</sub>([<span class="acc">CLS</span>] q<sub>1</sub>&hellip;q<sub>|q|</sub> [<span class="acc">SEP</span>] d<sub>1</sub>&hellip;d<sub>|d|</sub>)</span>
+            <p>Concatenate query and document into one transformer input. Every query token attends to every document token in every layer. Time per pair: <strong>O((|q|+|d|)<sup>2</sup>)</strong> in the attention layers. Document representations <strong>depend on the query</strong> and cannot be cached.</p>
+        </div>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Why the cross-encoder wins on precision</div>
+        <p>In a bi-encoder, the only path from query token <em>q<sub>i</sub></em> to document token <em>d<sub>j</sub></em> is through two pooled scalars. Token-level evidence (a single matching named entity, a specific operator, a date) has to fight its way into a global pooled vector. In a cross-encoder, query token <em>q<sub>i</sub></em> can attend directly to document token <em>d<sub>j</sub></em> in layer 1 and refine that attention in every subsequent layer. The fine-grained signal is preserved end-to-end. The cost of preserving it: you must re-run the model on every (q,d) pair you want to score.</p>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Property</th><th>Bi-encoder</th><th>Cross-encoder</th></tr></thead>
+            <tbody>
+                <tr><td>Score formula</td><td>&lang;f(q), g(d)&rang;</td><td>h([CLS] q [SEP] d)</td></tr>
+                <tr><td>Doc encoding depends on query?</td><td>No &mdash; precompute once</td><td>Yes &mdash; recompute every query</td></tr>
+                <tr><td>Cost of one score (BERT-base)</td><td>1 dot product &asymp; 1&ndash;3 &mu;s</td><td>1 full forward pass &asymp; 1&ndash;5 ms (GPU)</td></tr>
+                <tr><td>Cost over corpus of N docs</td><td>1 query encode + N dot products = O(D&middot;N)</td><td>N full forward passes = O(L&middot;N)</td></tr>
+                <tr><td>Indexable by MIPS / ANN?</td><td>Yes (see slide 03)</td><td>No &mdash; no factorisation exists</td></tr>
+                <tr><td>BEIR avg NDCG@10 (2024 SOTA)</td><td>&asymp; 48&ndash;52 (BGE-M3, E5-mistral)</td><td>&asymp; 55&ndash;60 (BGE-Reranker-v2-m3, Cohere)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="slide" id="slide-03">
+    <div class="slide-number">03</div>
+    <h2>Indexability &mdash; Why MIPS Scales and Cross-Attention Doesn't</h2>
+    <p>An index speeds up retrieval by exploiting structure in the scoring function. Whether structure exists is a property of the function, not the data. This is where the bi-encoder / cross-encoder split becomes a hard mathematical wall.</p>
+    <h3>Maximum Inner Product Search (MIPS)</h3>
+    <p>For a bi-encoder, retrieving the top-k documents is the problem:</p>
+    <span class="math">d<sup>&lowast;</sup> = arg max<sub>d &isin; D</sub> &lang; f(q), g(d) &rang;</span>
+    <p>Crucially, <code>f(q)</code> is fixed once the query is encoded; only <code>g(d)</code> varies as we sweep <em>d</em>. The problem reduces to finding the nearest neighbour of a fixed point in a precomputed point cloud <code>{g(d) : d &isin; D}</code>. This admits sub-linear indexing &mdash; tree-, graph-, and quantisation-based structures all work.</p>
+    <h3>The cross-encoder is non-factorisable</h3>
+    <p>For a cross-encoder, the score is <code>h([CLS] q [SEP] d)</code>. There is no decomposition</p>
+    <span class="math">h(q, d) = &lang; <span class="dim">&phi;(q)</span>, <span class="dim">&psi;(d)</span> &rang;</span>
+    <p>that holds for general inputs. Self-attention layers contain <code>softmax(QK<sup>T</sup>/&radic;d) V</code> where Q, K, V are computed from <em>all tokens jointly</em>. There is no way to precompute a per-document representation that supports cheap query-time scoring under arbitrary cross-attention. This is the <strong>indexability barrier</strong>.</p>
+    <div class="callout">
+        <div class="callout-label">A formal way to see the barrier</div>
+        <p>Suppose, for contradiction, that a cross-encoder admits a factorisation <code>h(q,d) &equiv; &lang;&phi;(q), &psi;(d)&rang;</code> with <code>&phi;, &psi;</code> mapping to <code>&reals;<sup>D</sup></code>. Then the rank of the matrix <code>M<sub>q,d</sub> = h(q, d)</code>, over any finite set of queries and documents, is at most D. But the matrix of cross-encoder scores has empirically been shown to be approximately full rank on real corpora &mdash; if it were not, a bi-encoder of dimension D would match cross-encoder quality, which is false. Hence no exact factorisation exists.</p>
+    </div>
+    <h3>What ColBERT (partly) buys you</h3>
+    <p>ColBERT keeps token-level embeddings on both sides and replaces full cross-attention with a per-query-token max:</p>
+    <span class="math">s(q,d) = &Sigma;<sub>i &isin; q</sub> max<sub>j &isin; d</sub> &lang; E<sub>q<sub>i</sub></sub>, E<sub>d<sub>j</sub></sub> &rang;</span>
+    <p>This is factorisable per document (each document's tokens are independent of the query at encode time) and admits a token-level inverted index. It is a strict relaxation of full cross-attention &mdash; each query token chooses its match in isolation, with no joint reasoning across query tokens &mdash; but it preserves enough token-level signal to close most of the gap to a cross-encoder. Covered in detail in <a href="https://brendanjameslynskey.github.io/RAG_09_Reranker_Mathematics/">Deck 09</a>.</p>
+</section>
+
+<section class="slide" id="slide-04">
+    <div class="slide-number">04</div>
+    <h2>ANN Mathematics &mdash; HNSW, IVF, PQ, Recall&ndash;Latency Trade-offs</h2>
+    <p>Bi-encoder retrieval over millions of vectors is fast only because we use an <em>approximate</em> nearest-neighbour structure. The three production-grade families &mdash; HNSW, IVF, and PQ &mdash; each trade exactness for speed in a different way.</p>
+    <div class="diagram-grid cols-3">
+        <div class="diagram-panel accent-border">
+            <h4>HNSW &mdash; Hierarchical Navigable Small World</h4>
+            <p>Multi-layer proximity graph. Top layer is sparse; bottom contains every vector. Search descends greedily, beam width <code>ef_search</code> controls candidate set per layer.</p>
+            <p>Expected query complexity: <strong>O(log N)</strong>. Recall is monotone in <code>ef_search</code>; bigger ef = more recall, more latency. Memory: ~1.2&ndash;1.5&times; the raw vectors (graph overhead).</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>IVF &mdash; Inverted File / Cluster-Then-Search</h4>
+            <p>K-means into <code>n_list</code> centroids at build time. Query: pick the <code>n_probe</code> nearest centroids, search only those cells.</p>
+            <p>Cost: <strong>O(n_probe &middot; N/n_list)</strong> distance evaluations. Typical: <code>n_list = &radic;N</code>, <code>n_probe = 8&ndash;32</code>. Recall scales sharply with <code>n_probe</code>; latency scales linearly.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>PQ &mdash; Product Quantisation</h4>
+            <p>Split each <em>D</em>-dim vector into <em>m</em> sub-vectors of dim <em>D/m</em>. K-means each sub-space to <em>2<sup>b</sup></em> codes. Store one byte (b=8) per sub-vector.</p>
+            <p>Memory: <strong>m bytes per vector</strong> instead of 4D. Distance via lookup table &mdash; ~8&times; faster than float dot product but lossy. Usually layered <em>under</em> HNSW or IVF for compression.</p>
+        </div>
+    </div>
+    <h3>The recall&ndash;latency curve, formally</h3>
+    <p>Every ANN structure exposes a knob (<code>ef_search</code>, <code>n_probe</code>, refinement depth) whose monotone increase produces a smooth recall&ndash;latency curve:</p>
+    <span class="math">Recall@k(&xi;) = Pr[ <span class="acc">true top-k</span> &sube; ANN(&xi;) ],<span class="dim">  &xi; = knob value</span></span>
+    <p>Two empirical facts shape all production tuning:</p>
+    <ul>
+        <li><strong>Recall is concave.</strong> Going from 90% to 95% costs roughly as much as going from 95% to 97%. Pushing past 99% costs as much as everything below it. Pick a target and stop.</li>
+        <li><strong>Latency is roughly linear in the knob.</strong> Doubling <code>ef_search</code> doubles distance evaluations. Doubling <code>n_probe</code> doubles cell scans. There are no free lunches inside one method &mdash; the lunches come from <em>changing methods</em> (IVF&rarr;HNSW, fp16&rarr;int8, refine-with-fp32).</li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Binary quantisation with float rescoring</div>
+        <p>A high-leverage 2024 pattern: index 1-bit-per-dimension binary vectors with Hamming distance (32&times; memory reduction, 4&ndash;10&times; speed-up), then <strong>rescore</strong> the top ~200 candidates with the original fp16/fp32 vectors. Recall@10 typically drops by &lt;1% versus float indexing. Supported in Qdrant, Vespa, Weaviate, Milvus, and Postgres pgvector 0.7+.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-05">
+    <div class="slide-number">05</div>
+    <h2>Recall, Precision, and the Recall-Ceiling Theorem</h2>
+    <p>Each stage of the cascade has a different optimisation target. Confusing them is the most common architectural mistake in RAG pipelines.</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Stage</th><th>Optimise for</th><th>Why</th><th>Typical k</th></tr></thead>
+            <tbody>
+                <tr><td>Stage 1 (retriever)</td><td><strong>Recall</strong></td><td>Anything missed here is lost forever &mdash; no downstream stage can recover it.</td><td>100&ndash;1000</td></tr>
+                <tr><td>Stage 2 (reranker)</td><td><strong>Precision &amp; rank quality</strong> (NDCG, MRR)</td><td>The LLM sees only the top-k. Bad ranking here is bad context.</td><td>5&ndash;20</td></tr>
+                <tr><td>Stage 3 (LLM)</td><td><strong>Faithfulness</strong></td><td>Given the top-k, does the generation cite them correctly?</td><td>3&ndash;10 in prompt</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Recall-ceiling theorem (informal)</div>
+        <p>Let <em>R<sub>1</sub>(k)</em> = Recall@k of stage 1 over a query distribution. For <em>any</em> stage-2 reranker &fscr;, including an oracle that ranks the stage-1 short-list perfectly:</p>
+        <span class="math">Recall@k<sub>final</sub>(&fscr;) &le; R<sub>1</sub>(k<sub>1</sub>)<span class="dim">    for any k &le; k<sub>2</sub> &le; k<sub>1</sub></span></span>
+        <p><strong>Stage-1 recall is the global ceiling.</strong> If your stage-1 Recall@100 is 92%, then 8% of user queries have no answer reachable from stage 2 &mdash; no matter how good your reranker, no matter how big your LLM. The only fix is at stage 1: better embeddings, hybrid retrieval, larger short-list, query rewriting.</p>
+    </div>
+    <h3>Operational consequence</h3>
+    <p>Before tuning <em>anything</em> downstream, measure <strong>Recall@k<sub>1</sub></strong> on a labelled set. If it is below ~90% at the short-list size you can afford to rerank, the cascade is fundamentally capped &mdash; investing in a better reranker buys nothing. Fix stage 1 first.</p>
+</section>
+
+<section class="slide" id="slide-06">
+    <div class="slide-number">06</div>
+    <h2>Fusion Mathematics &mdash; RRF Derivation, CombSUM, Z-Score</h2>
+    <p>When stage 1 fans out into multiple retrievers (BM25 + dense, plus perhaps domain-specific lexical or graph retrievers), their result lists must be fused. The fusion methods differ in what they assume about score scales.</p>
+    <h3>The score-scale problem</h3>
+    <p>BM25 returns unbounded positive scores whose magnitudes depend on document length, query term IDF, and corpus statistics. Dense bi-encoder cosine similarity returns values in <code>[-1, 1]</code> with most relevant pairs in <code>[0.3, 0.9]</code>. Adding them directly is meaningless &mdash; one retriever's noise floor can be louder than the other's signal.</p>
+    <h3>CombSUM &mdash; the original (Fox &amp; Shaw, TREC-3, 1994)</h3>
+    <span class="math">CombSUM(d) = &Sigma;<sub>r</sub> norm<sub>r</sub>(score<sub>r</sub>(d))<span class="dim">    over retrievers r</span></span>
+    <p>Requires per-retriever score normalisation &mdash; usually min-max to <code>[0,1]</code> or Z-score:</p>
+    <span class="math">z-norm(s) = (s &minus; &mu;<sub>r</sub>) / &sigma;<sub>r</sub><span class="dim">    &mu;<sub>r</sub>, &sigma;<sub>r</sub> over the retrieved short-list</span></span>
+    <p>Sensitive to outliers and to query-to-query score distribution drift &mdash; one query with a huge top score skews the entire normalisation.</p>
+    <h3>RRF &mdash; Reciprocal Rank Fusion (Cormack, Clarke &amp; B&uuml;ttcher, SIGIR 2009)</h3>
+    <span class="math">RRF(d) = &Sigma;<sub>r</sub> 1 / (k + rank<sub>r</sub>(d))<span class="dim">    rank starts at 1; k = 60 in the original paper</span></span>
+    <p>Uses only <em>ranks</em>, never raw scores. Three properties make it the modern default:</p>
+    <ol>
+        <li><strong>Scale-free.</strong> BM25 returning 38.7 and cosine returning 0.72 are mapped to ranks 1, 2, 3, &hellip; identically. No normalisation step.</li>
+        <li><strong>Smooth top-end emphasis.</strong> The reciprocal function gives most weight to ranks 1&ndash;10 but never zero to lower ranks. With <em>k</em>=60: rank 1 &rarr; 1/61 &asymp; 0.0164, rank 10 &rarr; 1/70 &asymp; 0.0143, rank 100 &rarr; 1/160 &asymp; 0.00625. A document ranked 1 by one retriever and 100 by another beats one ranked 50 in both.</li>
+        <li><strong>The constant <em>k</em>=60 is empirical.</strong> Cormack et al.'s ablation showed <em>k</em>=60 outperformed CombSUM and tuned learned fusion on TREC tracks. Larger <em>k</em> flattens the top-end emphasis (closer to a constant); smaller <em>k</em> over-rewards rank 1. Modern systems sometimes use <em>k</em>=20&ndash;100 with little measured difference.</li>
+    </ol>
+    <div class="callout">
+        <div class="callout-label">CombMNZ &mdash; rewarding agreement</div>
+        <p>A variant: <code>CombMNZ(d) = (number of retrievers that returned d) &times; CombSUM(d)</code>. Documents found by <em>all</em> retrievers are boosted. Rarely used in modern pipelines because RRF achieves a similar agreement-boosting effect implicitly &mdash; a document in the top-10 of every retriever accumulates many reciprocals, while a document found only once accumulates one.</p>
+    </div>
+    <h3>Learned fusion &mdash; when it pays</h3>
+    <p>If you have <em>labelled</em> query&ndash;document pairs (clicks, manual judgments, LLM-as-judge), a small LambdaMART or shallow MLP over per-retriever rank-features (rank<sub>r</sub>(d), score<sub>r</sub>(d), 1/rank<sub>r</sub>(d), retriever indicator) typically beats RRF by 1&ndash;3 NDCG@10 on the training distribution. The training cost is rarely worth it for a single-domain RAG system &mdash; use RRF until measured otherwise.</p>
+</section>
+
+<section class="slide" id="slide-07">
+    <div class="slide-number">07</div>
+    <h2>Latency Composition &mdash; Means, Percentiles, Parallelism</h2>
+    <p>Latency budgets are not additive in the obvious way. The mean of a sum is the sum of means, but tail percentiles compose much worse, and parallelism reshapes the budget entirely.</p>
+    <h3>Means add. Percentiles don't.</h3>
+    <p>For independent stages with latencies <em>X</em>, <em>Y</em>:</p>
+    <span class="math">E[X + Y] = E[X] + E[Y]<span class="dim">    means add</span></span>
+    <span class="math">P99(X + Y) <span class="dim">&ne; P99(X) + P99(Y)  in general</span></span>
+    <p>If <em>X</em> and <em>Y</em> are independent and roughly Gaussian, P99(X+Y) &asymp; &radic;(P99(X)<sup>2</sup> + P99(Y)<sup>2</sup>) &mdash; squared addition. But on real systems stage latencies are correlated (GC pauses, GPU contention, network blips), so the worst case is closer to P99(X) + P99(Y). Plan against the worst case until you have measurements.</p>
+    <h3>Sequential vs parallel stages</h3>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Sequential: BM25 &rarr; dense &rarr; rerank</h4>
+            <span class="math">L = L<sub>BM25</sub> + L<sub>dense</sub> + L<sub>rerank</sub></span>
+            <p>Typical 1M-doc corpus: 15 + 8 + 80 = <strong>103 ms</strong> mean. P99 closer to 50 + 25 + 130 = 205 ms. Wastes the obvious independence of stage 1.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Parallel stage 1 + sequential rerank</h4>
+            <span class="math">L = max(L<sub>BM25</sub>, L<sub>dense</sub>) + L<sub>fuse</sub> + L<sub>rerank</sub></span>
+            <p>Same numbers: max(15, 8) + 1 + 80 = <strong>96 ms</strong> mean &mdash; modest mean win, but a <em>larger</em> tail win because the slow retriever drives the max. Doable with <code>asyncio.gather</code> or any thread pool.</p>
+        </div>
+    </div>
+    <h3>The reranker latency function</h3>
+    <p>A batched cross-encoder reranker scoring <em>k</em> candidates has latency roughly:</p>
+    <span class="math">L<sub>rerank</sub>(k) &asymp; t<sub>load</sub> + &lceil; k / B &rceil; &middot; t<sub>fwd</sub>(B, L<sub>seq</sub>)</span>
+    <p>where <em>B</em> is GPU batch size, <em>L<sub>seq</sub></em> is sequence length, <em>t<sub>fwd</sub></em> is per-batch forward time. Two practical levers:</p>
+    <ul>
+        <li><strong>Batch the candidates.</strong> A batch of 64 (q, d) pairs is rarely 64&times; a single pair; for typical 512-token sequences on A100/H100 it is &asymp; 4&ndash;8&times;. Most published reranker latency numbers assume good batching &mdash; verify yours does too.</li>
+        <li><strong>Truncate aggressively at the right place.</strong> Halving <em>L<sub>seq</sub></em> usually nearly halves <em>t<sub>fwd</sub></em> (attention is quadratic but FFN is dominant at these sizes &mdash; closer to linear in practice). But truncating the document below ~200 tokens can lose information silently &mdash; see <a href="https://brendanjameslynskey.github.io/RAG_03_Hybrid_Search_and_Reranking/">RAG 03</a> on chunk-and-max.</li>
+    </ul>
+</section>
+
+<section class="slide" id="slide-08">
+    <div class="slide-number">08</div>
+    <h2>Cascade Depth &mdash; The (k, Quality, Latency) Pareto Frontier</h2>
+    <p>Tuning a cascade is a constrained optimisation. There is one free knob &mdash; the short-list size <em>k</em> &mdash; that simultaneously trades against quality and latency. Plotting one against the other yields the Pareto frontier and tells you exactly where to operate.</p>
+    <h3>The optimisation, formally</h3>
+    <span class="math">max<sub>k</sub>  NDCG@10(rerank<sub>top&minus;k</sub>(stage1))<span class="dim">    subject to  L(k) &le; budget</span></span>
+    <p>Three behaviours hold across every cross-encoder reranker on every modern benchmark:</p>
+    <ul>
+        <li><strong>NDCG@10 is monotone non-decreasing in <em>k</em>.</strong> A larger short-list contains a superset of the previous one; the reranker can only add information, never remove it (assuming a deterministic reranker).</li>
+        <li><strong>NDCG@10 saturates by <em>k</em> &asymp; 100&ndash;200.</strong> Beyond a few hundred candidates, almost all the marginal documents are negatives, and the reranker's gain plateaus. Measured on BEIR with BGE-Reranker-v2-m3 the typical curve flattens around <em>k</em>=100.</li>
+        <li><strong>Latency is linear in <em>k</em> for a batched reranker.</strong> Once you exceed one batch, doubling <em>k</em> roughly doubles reranker time.</li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">The shape of the frontier</div>
+        <p>NDCG@10 vs <em>k</em> typically follows a concave saturating curve; latency follows a near-linear ramp. Their composition is a classic logarithmic-in-quality, linear-in-cost frontier. The Pareto-optimal operating point is the <em>knee</em> &mdash; usually <em>k</em>=50&ndash;100 on text reranking. Below the knee you leave quality on the table; above it, you pay linear latency for vanishing returns.</p>
+    </div>
+    <h3>How to find your knee in practice</h3>
+    <ol>
+        <li>Build a labelled eval set (500&ndash;2000 queries with known relevant docs &mdash; LLM-generated questions are fine, see RAG 03 slide 08).</li>
+        <li>Run the cascade with <em>k</em> &isin; {10, 25, 50, 100, 200, 500}. Record NDCG@10 and end-to-end P50/P99 latency.</li>
+        <li>Plot NDCG@10 vs P99 latency. Pick the smallest <em>k</em> that hits your quality SLO; if every <em>k</em> hits it, pick the smallest. If none hits it, fix stage 1 (recall ceiling) before tuning further.</li>
+    </ol>
+</section>
+
+<section class="slide" id="slide-09">
+    <div class="slide-number">09</div>
+    <h2>Score Calibration &mdash; Platt, Isotonic, Temperature</h2>
+    <p>Reranker scores are not probabilities. They are logits or unnormalised real numbers that have been trained for <em>ranking</em>, not for absolute probability. If you want to use a score as a confidence threshold (&ldquo;drop any document with relevance &lt; 0.3&rdquo;) or compare scores across queries, you must calibrate.</p>
+    <h3>Why uncalibrated scores fail</h3>
+    <ul>
+        <li><strong>Rank-loss training has no probability target.</strong> Pairwise losses (RankNet, see Deck 09) only constrain <em>s(q,d<sup>+</sup>) &gt; s(q,d<sup>&minus;</sup>)</em>. A model that outputs (1.0, 0.99) is just as good as one that outputs (100, 0.1).</li>
+        <li><strong>Cross-query incomparability.</strong> One query may have ten near-duplicates in the corpus (high mean score); another may have one genuine match (low absolute score). Raw scores cannot be compared across queries.</li>
+    </ul>
+    <h3>Platt scaling &mdash; a sigmoid on the logit</h3>
+    <p>Fit a one-parameter (or two-parameter) sigmoid to map reranker score <em>s</em> to a calibrated probability:</p>
+    <span class="math">P(rel | s) = &sigma;(a &middot; s + b) = 1 / (1 + exp(&minus;(a s + b)))</span>
+    <p>Fit <em>a, b</em> by maximum-likelihood on a held-out set of (s, binary-rel) labels. Lightweight, monotone, and reversible. Works well when the score-to-probability map is roughly sigmoidal &mdash; usually true for cross-encoder logits.</p>
+    <h3>Temperature scaling &mdash; even simpler</h3>
+    <span class="math">P(rel | s) = &sigma;(s / T)<span class="dim">    fit T &gt; 0 on a calibration set</span></span>
+    <p>A one-parameter restriction of Platt (a=1/T, b=0). Often used for neural classifiers; rarely the best fit for reranker outputs, but easy and hard to overfit.</p>
+    <h3>Isotonic regression &mdash; non-parametric</h3>
+    <p>Fit a monotone step function from <em>s</em> to <em>P(rel | s)</em> by pool-adjacent-violators. No functional form &mdash; learns whatever monotone map fits. Pros: handles any shape, including S-curves, hockey-sticks, or plateaus. Cons: needs more calibration data (~1000+ pairs); not differentiable; harder to extrapolate beyond the training range.</p>
+    <div class="callout">
+        <div class="callout-label">Calibration matters most for cascade exits</div>
+        <p>The two places calibration is load-bearing: <strong>(1) early exit</strong> &mdash; if the top reranker score is above threshold &tau;<sub>high</sub>, skip the LLM and return the document directly; <strong>(2) abstention</strong> &mdash; if every score is below &tau;<sub>low</sub>, return &ldquo;I don't know&rdquo; instead of hallucinating from poor context. Both need cross-query-comparable probabilities, not raw scores.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-10">
+    <div class="slide-number">10</div>
+    <h2>Worked Example &mdash; 10 M Documents, 200 ms Budget</h2>
+    <p>Concrete numbers ground the abstractions. Consider a typical mid-scale enterprise RAG: 10<sup>7</sup> chunks, a 200 ms retrieval budget (300 ms left for LLM), single-GPU reranker.</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Stage</th><th>Choice</th><th>Mean</th><th>P99</th><th>Notes</th></tr></thead>
+            <tbody>
+                <tr><td>Query encode (bi-encoder)</td><td>BGE-base (110 M), fp16, GPU</td><td>4 ms</td><td>9 ms</td><td>Single query, no batch</td></tr>
+                <tr><td>BM25 retrieve</td><td>OpenSearch, 4 shards, top-200</td><td>22 ms</td><td>70 ms</td><td>Parallel with dense</td></tr>
+                <tr><td>Dense ANN retrieve</td><td>Qdrant HNSW, ef=128, top-200, binary+rescore</td><td>12 ms</td><td>30 ms</td><td>Parallel with BM25</td></tr>
+                <tr><td>RRF fusion</td><td>k=60, in-process Python</td><td>&lt;1 ms</td><td>&lt;1 ms</td><td>Reduces to top-100</td></tr>
+                <tr><td>Cross-encoder rerank</td><td>BGE-reranker-base (278 M), L<sub>seq</sub>=384, batch=64, A10</td><td>85 ms</td><td>140 ms</td><td>One batch covers k=100</td></tr>
+                <tr><td><strong>End-to-end retrieval</strong></td><td>Parallel stage 1 + sequential rerank</td><td><strong>&asymp; 110 ms</strong></td><td><strong>&asymp; 220 ms</strong></td><td>P99 just over budget</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Knobs if P99 misses the 200 ms target</div>
+        <p>In rough order of leverage: (1) drop <em>k</em> from 100 to 50 &mdash; saves ~40 ms reranker P99 for typically 1&ndash;2 NDCG@10 points; (2) use a smaller reranker (ms-marco-MiniLM-L-6, ~20 ms for k=100, ~4 NDCG@10 worse); (3) move the reranker to a dedicated GPU and serve via gRPC (cuts variance, not mean); (4) cache rerank scores on (query-hash, doc-id) for repeat queries; (5) use ColBERT-MaxSim instead &mdash; comparable quality, lower latency at k&gt;200 (see <a href="https://brendanjameslynskey.github.io/RAG_09_Reranker_Mathematics/">Deck 09</a>).</p>
+    </div>
+    <h3>Where the 5.5 hours went</h3>
+    <p>Recall slide 01: scoring all 10<sup>7</sup> docs with the cross-encoder would take 5.5 hours. The cascade compresses that into ~85 ms by:</p>
+    <ul>
+        <li>Cutting <strong>10<sup>7</sup> &rarr; 200</strong> with two indexed bi-encoders (5&times;10<sup>4</sup>&times; reduction)</li>
+        <li>Cutting <strong>200 &rarr; 100</strong> with rank fusion (2&times; reduction)</li>
+        <li>Running the expensive model only on the surviving 100 candidates (cross-encoder runs ~2&times;10<sup>5</sup>&times; less work)</li>
+    </ul>
+    <p>Net speed-up: <strong>~2&times;10<sup>5</sup>&times;</strong>. That is the entire point of the architecture.</p>
+</section>
+
+<section class="slide" id="slide-11">
+    <div class="slide-number">11</div>
+    <h2>What to Take Away</h2>
+    <ul>
+        <li><strong>The cascade is not an implementation choice.</strong> Cross-encoders are not factorisable, so they cannot be indexed. A two-step architecture is the only one that admits both whole-corpus reach and token-level scoring.</li>
+        <li><strong>Bi-encoder vs cross-encoder is an asymmetry about <em>where</em> the query and document interact.</strong> Late (single dot product) is indexable; early (joint transformer) is not. Everything else follows from that.</li>
+        <li><strong>The recall-ceiling theorem is unconditional.</strong> Stage-1 Recall@k<sub>1</sub> is the global upper bound on final-stage recall. Measure it before tuning anything downstream.</li>
+        <li><strong>RRF is the default fusion for a reason.</strong> Scale-free, zero parameters to tune, within 1&ndash;3 NDCG of learned fusion at no training cost. Use <em>k</em>=60 unless you have ground-truth data and an ablation budget.</li>
+        <li><strong>NDCG@10 saturates near <em>k</em>&asymp;100 on most text rerankers.</strong> The Pareto knee is small. Find it empirically; don't over-rerank.</li>
+        <li><strong>Calibrate before you threshold.</strong> Reranker scores are not probabilities. Platt or isotonic mapping is mandatory for early-exit and abstention logic.</li>
+        <li><strong>Parallelise stage 1.</strong> BM25 and dense ANN are independent operations; running them sequentially is unforced.</li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Where to next</div>
+        <p>The companion deck, <a href="https://brendanjameslynskey.github.io/RAG_09_Reranker_Mathematics/">RAG 09 &mdash; Reranker Mathematics</a>, dives into stage 2 itself: the cross-encoder architecture, ColBERT's late-interaction MaxSim, the learning-to-rank loss family (pointwise, pairwise RankNet, listwise LambdaRank / LambdaMART), the InfoNCE contrastive loss used to train modern bi-encoders, MarginMSE distillation from teachers to students, and formal derivations of the evaluation metrics (DCG with log<sub>2</sub> discount, NDCG, MRR, MAP) and their relationship to the loss functions.</p>
+    </div>
+</section>
+
+<footer class="footer">
+    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_RAG_Retrieval">RAG &amp; Retrieval Systems Series</a></p>
+    <p style="margin-top:0.5rem;font-size:0.8rem;"><a href="https://github.com/BrendanJamesLynskey/LLM_Hub_RAG_Retrieval">Back to Series Index</a></p>
+</footer>
+<script>
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+            }
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.slide').forEach(slide => {
+        slide.style.opacity = '0';
+        slide.style.transform = 'translateY(30px)';
+        slide.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        observer.observe(slide);
+    });
+</script>
+</body>
+</html>
